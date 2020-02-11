@@ -1,0 +1,148 @@
+---
+title: 'Gender Pay Gap: $t$-test workshop '
+author: Neil Stewart
+#date: '`r format(Sys.time(), "%d %B %Y")`'
+bibliography: module_refs.bib
+csl: https://www.zotero.org/styles/harvard-cite-them-right
+output: 
+   html_document:
+    toc: true
+    toc_depth: 3 
+---
+---
+
+```{r setup}
+library(tidyverse)
+library(lubridate)
+options(width=100)
+```
+
+---
+
+# Week 4 Workshop
+
+In this workshop we will run t-tests on the gender pay gap data
+
+When you run your $t$-tests, be sure to write plain English sentences to explain the results
+
+Be sure to include
+
+* Describe in words what you want the reader to know
+* Don't forget to describe the _difference_ of the direction (so "The heights of boys differ significantly from the heights of girls" is bad, but "The boys were significantly shorter than the girls" is good)
+* Report means
+* Report the $t$ statistic, the degrees of freedom, and the $p$ value
+
+You will need to combine your code from the 'dplyr' and 'ggplot' workshops
+
+## Tasks for today
+
+1. Make a sample of 100 fake data points drawn from a normally-distributed population mean 10 and standard deviation 10. Run a $t$-test on your sample testing the hypothesis that the population mean is zero
+	* What happens when you change the mean to 20? 
+	* What happens when you change the standard deviation to 5?
+	* What happens when you change the sample size to 500?
+For each question, explain _why_
+
+(Hint: `rnorm(n=100, mean=10, sd=10)` will sample 100 random observations from a normally-distributed population mean 10 and standard deviation 10)
+
+2. Is the gender gap in mean hourly pay zero?
+
+3. Are public sector employers better than businesses or charities? 
+
+4. Is the pay gap worse for employers submitting late? 
+
+For each question:
+
+* Write out more carefully what the hypothesis the $t$-test is testing here actually is
+* Run the $t$-test
+* Write a sentence describing the inference you can make. Include the $t$-test results
+
+Finally, check you can knit your Rmarkdown document to produce an HTML file documenting everything you have done
+
+## Learning objectives for today
+
+1. Understand the $t$-test
+2. Learn how to run $t$-tests in R
+3. Learn how to report $t$-tests
+  
+---
+
+# Sampling: Question 1
+
+```{r}
+t.test(rnorm(n=100, mean=10, sd=10))
+t.test(rnorm(n=100, mean=20, sd=10))
+t.test(rnorm(n=100, mean=10, sd=5))
+t.test(rnorm(n=500, mean=10, sd=10))
+```
+
+When the sample mean increases, the standard deviation decreases, or the sample size increases, $t$ will get larger and $p$ will get smaller. We are more sure that the population mean is not zero when the sample mean increases, the standard deviation decreases, or the sample size increases
+
+# Gender Pay Gap
+
+```{r}
+pay.gap <- read_csv("UK_gender_pay_gap_2017-18.csv")
+```
+
+---
+
+## Question 2: Is the gender gap in mean hourly pay zero?
+
+```{r}
+pay.gap %>% summarise(mean=mean(DiffMeanHourlyPercent), N=n())
+ggplot(pay.gap, aes(x=DiffMeanHourlyPercent)) + geom_histogram(binwidth=1) + xlim(-100, 100) + labs(x=expression(frac(Male~Mean-Female~Mean,Male~Mean)*'%'), y="Frequency", subtitle="NB 5 observations <100 omitted and 1 observation>100 omitted")
+```
+
+Figure X. The distribution of gender pay gap. Pay gap is defined as the difference between mean male pay and mean female pay as a fraction of mean male pay. Bars are bins 1% wide
+
+```{r}
+t.test(pay.gap$DiffMeanHourlyPercent)
+```
+
+The pay gap in mean hourly pay 14.3%, which is significantly above zero, $t(10531)=96.5$, $p<.0001$
+
+---
+
+# Question 3: Are public sector employers better than businesses or charities?
+
+```{r}
+pay.gap <- mutate(pay.gap, DueDate=dmy_hms(DueDate), Sector=ifelse(DueDate==ymd("2018-03-31"), "Public Sector", "Business / Charity"))
+
+(  pay.gap.by.sector <- pay.gap %>% group_by(Sector) %>% summarise(mean=mean(DiffMeanHourlyPercent), n=n())  )
+
+pay.gap.by.sector %>% summarise(difference=diff(mean))
+
+
+ggplot(pay.gap) + geom_histogram(aes(x=DiffMeanHourlyPercent), binwidth=1) + facet_grid(Sector~.) + xlim(-100,100) + labs(x=expression(frac(Male~Mean-Female~Mean,Male~Mean)*'%'), y="Frequency", subtitle="NB 5 observations <100 omitted and 1   observation>100 omitted") + geom_vline(data=pay.gap.by.sector, mapping=aes(xintercept=mean), col="green")
+```
+
+Figure X. The distribution of gender pay gap by industry sector. Green lines mark distribution means
+
+```{r}
+t.test(DiffMeanHourlyPercent~Sector, data=pay.gap)
+```
+
+Business / charity employers have a mean hourly pay gap of 14.2%. Public sector employers have a higher mean hourly pay gap of 14.9%. This difference of 0.7% is significant, $t(3304.5)=2.40$, $p=.016$
+
+---
+
+# Question 4: Does submitting late predict pay gap?
+
+```{r}
+pay.gap <- pay.gap %>% mutate(SubmittedAfterTheDeadline=factor(SubmittedAfterTheDeadline, levels=c("True", "False"), labels=c("Late Submissions", "On-Time Submissions")))
+
+(  pay.gap.by.late <- pay.gap %>% group_by(SubmittedAfterTheDeadline) %>% summarise(frequency=n(), mean=mean(DiffMeanHourlyPercent))  )
+
+pay.gap.by.late %>% summarise(difference=diff(mean))
+
+ggplot(pay.gap, aes(x=DiffMeanHourlyPercent, y=..density..)) + geom_histogram(binwidth=1) + facet_grid(SubmittedAfterTheDeadline~.) + xlim(-100,100) + labs(x=expression(frac(Male~Mean-Female~Mean,Male~Mean)*'%'), y="Density", subtitle="NB 5 observations <100 omitted and 1 observation>100 omitted") + geom_density()
+```
+
+Figure X. The distribution of gender pay gap by submission time. Bars show the density in 1% bins, and the black line shows the Gaussian smoothed density using Silverman's rule of thumb
+
+```{r}
+t.test(DiffMeanHourlyPercent~SubmittedAfterTheDeadline, data=pay.gap)
+```
+
+Employers submitting on time have a pay gap of 14.5%. Employers submitting late have a pay gap of 11.2%, which is a significant 3.3% lower, $t(705.56)=4.69$, $p<.0001$
+
+
