@@ -1,0 +1,263 @@
+---
+title: 'ANOVA'
+author: Neil Stewart
+#date: '`r format(Sys.time(), "%d %B %Y")`'
+bibliography: module_refs.bib
+csl: https://www.zotero.org/styles/harvard-cite-them-right
+output: 
+   html_document:
+    toc: true
+    toc_depth: 3 
+---
+---
+
+```{r setup}
+library(tidyverse)
+library(gridExtra)
+library(emmeans) # for emmeans() and pairs()
+library(nycflights13)
+library(lubridate)
+options(width=100)
+```
+
+---
+
+# Objectives
+
+* Understand analysis of variance (ANOVA)
+* Understand the difference between _null hypothesis significance testing_ (NHST) and _estimation_
+* Understand estimated marginal means
+* Understand what an _interaction_ is
+* Be able to run linear models in R:
+	* Using `summary` and `confint`, for the NHST approach
+	* Using `emmeans`, for the estimation approach
+* Be able to report results in plain English using a NHST or estimation approach
+* Be able to produce excellent plots with `ggplot`
+
+---
+
+# Reading
+
+@Howell17 Chapters 16 and 17 an excellent introduction to ANOVA
+
+You can find a more advanced treatment in @Dalgaard08 Chapters 7
+
+---
+
+# Daily Mean In Air Gain for Flights from NYC
+
+Let's explore how the average daily in-air gain varies across airports
+
+First we calculate the in-air gain
+
+Then we average over all the flights in one day from one airport
+
+```{r}
+flights <- nycflights13::flights
+flights <- mutate(flights, gain=dep_delay-arr_delay) %>% filter (!is.na(gain))
+flights.daily <- flights %>% group_by(year,month,day,origin) %>% summarise(gain=mean(gain))
+```
+
+---
+
+## Factors
+
+We are going to make the origin airport into a `factor`. `factor`s are an important _type_ in R. Variables for use in `lm()` should either be `numeric` or `factor`s. `character` vectors are coerced into `factor`s. See [Chapter 15 of R for Data Science](https://r4ds.had.co.nz/factors.html)
+
+```{r}
+flights.daily <- mutate(flights.daily, origin=as.factor(origin))
+str(pull(flights.daily, origin))
+flights.daily %>% group_by(origin) %>% summarise(n())
+```
+
+---
+
+## One-Way ANOVA
+
+The syntax for running an ANOVA is exactly the same as for a regression. The only difference is that `origin` is a factor not a numerical variable
+
+```{r}
+m.gain.by.origin <- lm(gain~origin, data=flights.daily)
+anova(m.gain.by.origin)
+```
+
+The function `anova()` tests whether the variable `origin` has a significant effect on the in-air gain. We can say "The in-air gain differs significantly across departure airports, $F(2,1092)=4.59$, $p = .011$"
+
+The ANOVA does not tell us where the differences are. The above description of the ANOVA is not sufficient, because it does not say how the airports differ. Which has the largest in-air gain? Which has the smallest?
+
+```{r}
+summary(m.gain.by.origin)
+```
+
+The `summary()` function gives us a set of coefficients, just like when we ran a regression. But what do they mean?
+
+---
+
+## The Design Matrix
+
+Secretly, in the background, R makes a design matrix. Then, to do the ANOVA, R just does a multiple regression. I've shown it here so you can see how it works
+
+For example, the coefficient `originJFK` in the `summary()` output is the coefficient for the _dummy variable_ `originJFK` in the `model.matrix`. Because EWR is first in the alphabet, it is modelled as the reference airport. The 1 in `originJFK` means that the airport is JFK (and thus not EWR or LGA)
+
+```{r}
+head(cbind(as.data.frame(flights.daily), model.matrix(m.gain.by.origin)))
+```
+
+(Intercept) | originJFK | originLGA | Meaning
+----------- | --------- | --------- | -------
+1 | 0 | 0 | means EWR
+1 | 1 | 0 | means JFK
+1 | 0 | 1 | means LGA
+
+This means that:
+
+* the intercept 5.9356 is the mean for EWR
+* the coefficient 0.4563 for `originJFK` is the difference between EWR and JFK
+* the coefficient -1.1999 for `originLGA` is the difference between EWR and LGA
+
+---
+
+## Estimated Marginal Means
+
+Estimated marginal means are a great way of getting the means for each airport from the model
+
+```{r}
+(  m.gain.by.origin.emm <- emmeans(m.gain.by.origin, ~origin)  )
+```
+
+---
+
+## Contrasts
+
+We can also make contrasts between these airport means. `pairs()` does all pairwise contrasts
+
+```{r}
+(  m.gain.by.origin.pairs <- confint(pairs(m.gain.by.origin.emm))  )
+```
+
+---
+
+## Presenting a One-Way ANOVA
+
+Here is some code for constructing plots of the estimates for each airport and the estimates of the difference between airports, following Cumming's estimation suggestions
+
+```{r}
+p.gain <- ggplot(summary(m.gain.by.origin.emm), aes(x=origin, y=emmean, ymin=lower.CL, ymax=upper.CL)) + geom_point() + geom_linerange() + labs(x="Origin Airport", y="In-Air Gain / Minutes", subtitle="Error Bars are Extent of 95% CIs") + ylim(0,8)
+
+p.contrasts <- ggplot(m.gain.by.origin.pairs, aes(x=contrast, y=estimate, ymin=lower.CL, ymax=upper.CL)) + geom_point() + geom_linerange() + geom_hline(yintercept=0, lty=2) + labs(x="Contrast", y="Difference in In-Air Gain / Minutes", subtitle="Error Bars are Extent of 95% CIs") + ylim(-2,6)
+
+grid.arrange(p.gain, p.contrasts, ncol=2)
+```
+
+So we might write:
+
+"The left panel of Figure X shows the mean daily in-air gain from each airport. JFK has the highest gain, followed by EWR. LGA has the lowest in-air gain. The right panel shows the estimates of the difference in in-air gain for each pair of airports. The estimate for the EWR-JFK comparison shows a point estimate of 0.5 minutes greater gain for JFK, but the 95% CI spans 0.9 minutes greater for EWR to 1.8 minutes greater for JFK..."
+
+---
+
+## The Underlying Model
+
+```{r echo=FALSE, warning=FALSE}
+# I used "echo=FALSE" because I don't expect you to understand or reproduce this chuck of R code!
+
+m.gain.intercept <- lm(gain~1, data=flights.daily)
+null.mean <- coef(m.gain.intercept)
+null.sd <- sigma(m.gain.intercept)
+
+alternative.means <- summary(m.gain.by.origin.emm)$emmean
+alternative.sd <- sigma(m.gain.by.origin)
+
+p.null <- ggplot(flights.daily, aes(x=gain, fill=origin)) + geom_histogram(aes(y=..density..), position="identity", alpha=0.3, binwidth=1) + xlim(-30,30) + stat_function(fun=dnorm, args=list(mean=null.mean, sd=null.sd)) + labs(x="In-Air Gain / Minutes", y="Density", title="Null Hypothesis", fill="Origin")
+
+colours <- scales::hue_pal()(3)
+p.alternative <- ggplot(flights.daily, aes(x=gain, fill=origin)) + geom_histogram(aes(y=..density..), position="identity", alpha=0.3, binwidth=1) + xlim(-30,30) +labs(x="In-Air Gain / Minutes", y="Density", title="Alternative Hypothesis", fill="Origin") +
+	stat_function(fun=dnorm, args=list(mean=alternative.means[1], sd=alternative.sd), col=colours[1]) +
+	stat_function(fun=dnorm, args=list(mean=alternative.means[2], sd=alternative.sd), col=colours[2]) +
+	stat_function(fun=dnorm, args=list(mean=alternative.means[3], sd=alternative.sd), col=colours[3]) 
+
+grid.arrange(p.null, p.alternative, ncol=1)
+```
+
+---
+
+# In Air Gain, Controlling for Distance
+
+Thus far, we have been rather na&iuml;ve. The different airports fly to different destinations. Longer flights are probably more able to make up lost time in the air
+
+Let's work on the raw row-per-flight data so we can take the flight's distance into account
+
+The histogram of distance by origin shows that JFK and EWR do have many flights which fly much further than LGA
+
+```{r}
+ggplot(flights, aes(x=distance, fill=origin)) + geom_histogram(position="identity", alpha=0.5, binwidth=100) 
+cor(select(flights, distance, gain))
+```
+
+This is a simple model with just gain as a function of origin:
+
+```{r}
+m.gain.by.origin <- lm(gain~origin, data=flights)
+(  m.gain.by.origin.emm <- emmeans(m.gain.by.origin, ~origin)  )
+```
+
+This model also includes the distance:
+
+```{r}
+m.gain.by.origin.distance <- lm(gain~origin+distance, data=flights)
+(  m.gain.by.origin.distance.emm <- emmeans(m.gain.by.origin.distance, ~origin)  )
+```
+
+This call to `anova()` compares the models and tests whether the more complicated model with distance fits _significantly_ better
+
+```{r}
+anova(m.gain.by.origin, m.gain.by.origin.distance)
+```
+
+Here I have constructed a plot to highlight the importance of controlling for distance. Without control, in the univariate model, the differences in in-air gain are much larger. With control for distance, the EWR-JFK difference is nearly zero, and the difference to LGA is much smaller
+
+The effect of origin in the multivariate model is _holding distance constant_
+
+```{r}
+m.gain.by.origin.emm.summary <- summary(m.gain.by.origin.emm)
+m.gain.by.origin.emm.summary$model <- "Univariate"
+m.gain.by.origin.distance.emm.summary <- summary(m.gain.by.origin.distance.emm)
+m.gain.by.origin.distance.emm.summary$model <- "With Distance"
+m.gain.two.models.emm.summary <- rbind(m.gain.by.origin.emm.summary, m.gain.by.origin.distance.emm.summary)
+
+ggplot(m.gain.two.models.emm.summary, aes(x=origin, y=emmean, ymin=lower.CL, ymax=upper.CL, col=model)) + geom_point() + geom_linerange() + labs(x="origin", y="In-Air Gain / Minutes", col="Model")
+```
+
+---
+
+# In Air Gain, By Origin and Day
+
+Here we are going to explore how in-air gain varies by day, and whether effect of day varies across airports
+
+Lets add a column indicating which day of the week it is
+
+```{r}
+flights <- flights %>% mutate(week_day=wday(time_hour, label=TRUE))
+```
+
+The term `origin*week_day` means `origin + week_day + origin:week_day`
+
+The interaction term `origin:week_day` lets the effect of `week_day` differ across `origin` airport
+
+```{r}
+m.gain.by.origin.week_day <- lm(gain~origin*week_day, data=flights)
+anova(m.gain.by.origin.week_day)
+(  m.gain.by.origin.week_day.emm <- emmeans(m.gain.by.origin.week_day, ~origin+week_day)  )
+
+ggplot(summary(m.gain.by.origin.week_day.emm), aes(x=week_day, y=emmean, ymin=lower.CL, ymax=upper.CL, group=origin)) + geom_point() + geom_linerange() + labs(x="Day", y="In-Air Gain / Minutes") + facet_grid(.~origin) + geom_line()
+```
+
+Interactions are tricky. You need to write about them very carefully. It is hard to explain that the effect of one variable depends on another
+
+If we are NHSTing, we might write "The effect of day of the week on in-air gain differs across origin airports, $F(12, 327325) = 90.3$, $p<.0001$"
+
+We could follow up the interaction with lots of pairwise comparisons, but unless we have some specific hypotheses about _why_ we expect particular differences it is probably best just to describe the pattern in words: "While Saturday and Sunday, are weekdays with bigger in-air gains at EWR and LGA, the pattern at JFK is different: Saturday also has the biggest in-air gain at JFK, but Sunday has the lowest"
+
+---
+
+# References
+
