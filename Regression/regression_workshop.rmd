@@ -1,0 +1,140 @@
+---
+title: 'Regression workshop'
+author: Neil Stewart
+#date: '`r format(Sys.time(), "%d %B %Y")`'
+bibliography: module_refs.bib
+csl: https://www.zotero.org/styles/harvard-cite-them-right
+output: 
+   html_document:
+    toc: true
+    toc_depth: 3 
+---
+---
+
+```{r setup}
+library(tidyverse)
+library(gridExtra)
+library(emmeans) # for emmeans() and pairs()
+options(width=100)
+```
+
+---
+
+# Regression workshop
+
+Today you have been hired by a [Capital Bikeshare](https://www.capitalbikeshare.com/system-data). They want to know how the weather affects cycle hire
+
+You can download data from the [UCI Machine Learning Repository's Bike Sharing Dataset](http://archive.ics.uci.edu/ml/datasets/Bike+Sharing+Dataset). We will use the _daily_ data
+
+# Learning objectives for today
+
+* Understand _regressions_ and _multiple regressions_
+* Understand the problem of _multicollinearity_
+* Understand the difference between _null hypothesis significance testing_ (NHST) and _estimation_
+* Be able to run a regression in R:
+* Be able to report results in plain English using a NHST or estimation approach
+* Be able to produce excellent plots with `ggplot`
+
+# Steps for today
+
+1. Make a tibble from the `day.csv` file
+2. Make a data dictionary table, explaining what each variable is. Read the README file!
+3. Make new variables for unnormalised temperature and wind speed. So temperature should be in degrees C and wind speed should be in miles per hour
+4. We are going to be working with `cnt`, the count of the number of bike rentals per day, and temperature and wind speed. Make univariate plots (e.g., histograms) for each of these
+5. Make bivariate plots for each pair of these three variables (so count by temperature, count by wind speed, and temperature by wind speed). Why? Because you should _always plot your data_
+6. Calculate the pairwise correlations for these three variables. Why are we happy that the correlation between wind speed and temperature is low?
+7. Run regressions for:
+	* Count as a function of wind speed
+	* Count as a function of temperature
+	* Count as a function of wind speed and temperature
+8. For each degree C of temperature, how does the number of bikes rented change?
+9. For each mile per hour of wind speed, how does the number of bikes rented change?
+10. If wind speed is held constant, how does the number of bikes rented change with temperature?
+11. If temperature is held constant, how does the number of bikes rented change with wind speed?
+12. Explain _why_ there is a difference in our estimate of the effect of wind speed between the univariate and multivariate model?
+13. Can you say something about which matters more for bike hire: temperature or wind speed? If you could only know one variable, which one would you rather know
+
+---
+
+```{r}
+days <- read_csv("day.csv")
+
+days <- days %>% mutate(temp.in.C=(-8) + (39-(-8)) * temp) # Add unnormalised temperature
+ggplot(days, aes(x=temp.in.C)) + geom_histogram(binwidth=1) + labs(x="Temperature / degrees C", y="Frequency")
+
+days <- days %>% mutate(windspeed.in.mph=windspeed*67) # Add unnormalised windspeed
+ggplot(days, aes(x=windspeed.in.mph)) + geom_histogram(binwidth=1) + labs(x="Windspeed / mph", y="Frequency")
+```
+
+Each row is about one day in the two year period from 1 January 2011 to 31 December 2012
+
+Variable     | Description
+------------ | -------------------------------------------------------------
+`instant`    | Index 
+`dteday`     | Date
+`season`     | Dummy for season (1:spring, 2:summer, 3:fall, 4:winter)
+`yr`         | Year dummy (0: 2011, 1:2012)
+`mnth`       | Month   
+`holiday`    | holiday dummy
+`weekday`    | Day of week 
+`workingday` | Work-day dummy: if day is neither weekend nor holiday is 1, otherwise is 0
+`weathersit` | Dummy for weather conditions (1: Clear, Few clouds, Partly cloudy, Partly cloudy; 2: Mist + Cloudy, Mist + Broken clouds, Mist + Few clouds, Mist; 3: Light Snow, Light Rain + Thunderstorm + Scattered clouds, Light Rain + Scattered clouds;    4: Heavy Rain + Ice Pallets + Thunderstorm + Mist, Snow + Fog)
+`temp`       | Normalized temperature in Celsius. The values are derived via (t-t_min)/(t_max-t_min), t_min=-8, t_max=+39 (only in hourly scale)
+`atemp`      | Normalized feeling temperature in Celsius. The values are derived via (t-t_min)/(t_max-t_min), t_min=-16, t_max=+50 (only in hourly scale)
+`hum`        | Normalized humidity. The values are divided to 100 (max)
+`windspeed`  | Normalized wind speed. The values are divided to 67 (max)
+`casual`     | Count of casual users
+`registered` | Count of registered users
+`cnt`        | Count of total rental bikes including both casual and registered
+
+```{r}
+ggplot(days, aes(x=cnt)) + geom_histogram(binwidth=100) + labs(x="Number of Bikes Rented", y="Frequency")
+```
+
+```{r}
+ggplot(days, aes(y=cnt, x=windspeed.in.mph)) + geom_point() + geom_smooth() + labs(x="Wind Speed / mph", y="Number of Bikes Rented")
+ggplot(days, aes(y=cnt, x=temp.in.C)) + geom_point() + geom_smooth() + labs(x="Temperature / degrees C", y="Number of Bikes Rented") 
+
+round(cor(select(days, cnt, windspeed.in.mph, temp.in.C)), digits=2)
+```
+
+```{r}
+m.cnt.by.windspeed <- lm(cnt~windspeed.in.mph, data=days)
+summary(m.cnt.by.windspeed)
+cbind(coef(m.cnt.by.windspeed), confint(m.cnt.by.windspeed))
+```
+
+For every extra mile per hour of wind speed 87 fewer bikes are rented 95% CI [61--114]
+
+```{r}
+m.cnt.by.temp <- lm(cnt~temp.in.C, data=days)
+summary(m.cnt.by.temp)
+cbind(coef(m.cnt.by.temp), confint(m.cnt.by.temp))
+```
+
+For every extra degree C in temperature 141 more bikes are rented 95% CI [129--154] 
+```{r}
+m.cnt.by.windspeed.temp <- lm(cnt~windspeed.in.mph + temp.in.C, data=days)
+summary(m.cnt.by.windspeed.temp)
+cbind(coef(m.cnt.by.windspeed.temp), confint(m.cnt.by.windspeed.temp))
+```
+
+Holding wind speed constant, 136 more bikes 95% CI [124--149] are rented for every degree C rise in temperature. Holding temperature constant, 52 fewer bikes 95% CI [31--73] are rented for every mile per hour increase in wind speed
+
+The plots below show, in the black line, the overall effect of the variable and, in the coloured lines, the effect of the variable with the other held constant. Because the correlation between wind speed and temperature is low, the slopes estimated in the univariate model are similar to the slopes from the multivariate model
+
+```{r fig.height=10}
+windspeed.bins <- quantile(pull(days, windspeed.in.mph))
+days <- days %>% mutate(windspeed.bin=cut(windspeed.in.mph, windspeed.bins, include.lowest=TRUE))
+
+temp.bins <- quantile(pull(days, temp.in.C))
+days <- days %>% mutate(temp.bin=cut(temp.in.C, temp.bins, include.lowest=TRUE))
+
+grid.arrange(
+	ggplot(days, aes(x=windspeed.in.mph, y=cnt, col=temp.bin)) + geom_point() + geom_smooth(method=lm) + geom_smooth(mapping=aes(col=NULL), method=lm, col="black") + labs(x="Wind Speed / mph", y="Number of Bikes Rented", col="Temperature\n / degrees C"),
+	ggplot(days, aes(x=temp.in.C, y=cnt, col=windspeed.bin)) + geom_point() + geom_smooth(method=lm) + geom_smooth(mapping=aes(col=NULL), method=lm, col="black") + labs(x="Temperature / degrees C", y="Number of Bikes Rented", col="Wind Speed\n / mph")
+)
+```
+
+Wind speed explains only 5.5% of the variance in bike rental, but temperature explains 39% of the variance in bike rental. Together they explain 41% of the variance. If I could only know one variable to predict bike rentals, I'd definitely rather know temperature 
+
