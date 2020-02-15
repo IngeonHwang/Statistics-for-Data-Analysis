@@ -1,0 +1,148 @@
+---
+title: 'Poisson regression workshop'
+author: Neil Stewart
+#date: '`r format(Sys.time(), "%d %B %Y")`'
+bibliography: module_refs.bib
+csl: https://www.zotero.org/styles/harvard-cite-them-right
+output: 
+   html_document:
+    toc: true
+    toc_depth: 3 
+---
+---
+
+```{r setup}
+library(tidyverse)
+library(emmeans) # for emmeans() and pairs()
+library(lubridate)
+
+options(width=100)
+```
+
+---
+
+# Poisson regression workshop
+
+In this workshop we will run a Poisson regression to estimate how much the introduction of the law on seatbelts reduced the number of drivers killed 
+
+Today's workshop is designed to be _just like one of the questions from the assessment_
+
+---
+
+# Learning objectives for today
+
+1. Understand the generalised linear model for Poisson regression
+2. Learn how to run Poisson regression models in R
+3. Learn how to draw wonderful plots of count data
+4. Learn how to report results from a Poisson regression
+
+
+---
+
+# Assessment Instructions
+
+Please complete the following question. Your answer should have two separate sections. In the first section, write out your answers using complete sentences. Include descriptive statistics in the text, or in tables or figures as appropriate. Tables and figures should be of publication quality (i.e., fully labelled, etc.). Integrate inferential statistics into your description of the results. Your answers might be very short.
+
+The second section should include the complete R code that you used. Add comments to explain what the code does. The code should show all of the commands that you used, enough for me to replicate exactly what you did. Check that the code runs in one smooth go when you knit the R Markdown together. You can include figures here that you used to explore the data that you don't wish to include in the first section. I will use the second section to help identify the sources of any mistakes. The first section should stand alone without the second section.
+
+Use both null hypothesis significance testing and the estimation approach.
+
+There is a word limit of 3,500 words for the first section. Your answers should be _much shorter than this_, perhaps 100-200 words. You get credit for a clear and concise report and writing more words than necessary is not required.
+
+---
+
+# Question 1
+
+(50% of the marks---there are two questions in the assessment)
+
+You are working for the Department of Transport. Using the data "seatbelts.csv", explore how the number of driver deaths per month `DriversKilled` changes as the seatbelt law was changed in February 1983. What was the effect of the law?
+
+To do this, use a Poisson regression, modelling the number of drivers killed. Run regressions with just the law change as a predictor, and also with covariates `month` of the year and the price of petrol (`PetrolPrice`). By how much are fatalities reduced by the change in the law? Which model tells us about more about the causal effect of the law?
+
+---
+
+# Question 1 Answer
+
+## Section 1
+
+Figure 1 plots the number of drivers killed per month over time. We fit the number of deaths per month before and after the law change with a Poisson regression. Before the law changed the average number of drivers killed per month is 126 95% CI[124--128]. After the law change the average number of drivers killed is 100 95% CI[96--104]. This is a drop of 20.3% 95% CI[16.8%--23.7%]. This drop is significant, $\chi^2(1,190)=114$, $p<.0001$.
+
+![](drivers_killed_by_date_plot.png) 
+Figure 1. The time series of the number of drivers killed. Each dot represents one month. The law changed in February 1983
+
+However, the petrol prices are higher after the law changed, and there fewer deaths when petrol prices are high. This could cause the effect of the law change to appear larger than it really is. In addition, the law was introduced part way through the year so that there are more Januaries in the data before the law change than after. Because January has a high number of death, having fewer Januaries in the data after the change will also make the effect of the law change appear bigger. Controlling for petrol price and month, a Poisson regression estimates the number of drivers killed per month before the law change is 124 95% CI[122-125] and after the change this drops to 106 95% CI[101-110]. This is a significant drop, $\chi^2(1,190)=114$, $p<.0001$, of 14.4% 95% CI[10.3--18.3].
+
+The estimate of 14.4% from the model with covariates is a better estimate of the causal effect of changing the law because it estimates the effect of the law change holding constant the price of petrol and the time of year.
+
+---
+
+## Section 2
+
+```{r}
+seatbelts <- read_csv("seatbelts.csv")
+
+# Make a date column for plotting the time series
+seatbelts <- seatbelts %>% mutate(date=ymd(paste(year, month, "01", sep="/")))
+
+# Make month into a factor
+seatbelts <- seatbelts %>% mutate(month=factor(month, levels=c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")))
+
+# Make a factor indicating whether the law is in force in each month
+seatbelts <- seatbelts %>% mutate(law=factor(law, levels=c(0,1), labels=c("No Law", "Law")))
+```
+
+Plot a time series for number of drivers killed by date. It looks like there is a drop when the law is introduced
+
+```{r}
+(  drivers.killed.by.date.plot <- ggplot(seatbelts, aes(x=date, y=DriversKilled, col=as.factor(law))) + geom_point() + labs(x="Date", y="Number of Drivers Killed Per Month", col="Law Change")  )
+
+ggsave(drivers.killed.by.date.plot, file="drivers_killed_by_date_plot.png")
+```
+
+Collapsing over months, it looks like there are fewer deaths in each month after the law has changed 
+
+```{r}
+ggplot(seatbelts, aes(x=DriversKilled, y=..density.., fill=law)) + geom_histogram(alpha=0.5, position="identity") + labs(x="Number Killed", y="Density", fill="Law Change")
+```
+
+Let's explore the petrol price and month covariates. It looks like the number of drivers killed varies by price and month
+
+Petrol prices are, on average, higher after the law change and there are fewer fatalities when prices are higher
+
+```{r}
+ggplot(seatbelts, aes(y=DriversKilled, x=PetrolPrice, col=law)) + geom_point() + geom_smooth() + labs(x="Petrol Price", y="Drivers Killed")
+ggplot(seatbelts, aes(x=PetrolPrice, y=..density.., fill=law)) + geom_histogram(alpha=0.5, position="identity") + labs(x="Petrol Price", y="Density", fill="Law Change")
+
+xtabs(~month+law, data=seatbelts)
+ggplot(seatbelts, aes(y=DriversKilled, x=month, col=law)) + geom_jitter(height=0, width=0.1) + labs(x="Month", y="Drivers Killed")
+```
+
+# Model: Drivers killed by law change
+
+```{r}
+seatbelts.by.law <- glm(DriversKilled~law, data=seatbelts, family=poisson)
+anova(seatbelts.by.law, test="Chisq")
+summary(  seatbelts.by.law.emm <- emmeans(seatbelts.by.law, ~law, type="response")  )
+# Before and after contrast
+confint(contrast(seatbelts.by.law.emm, list(law.change=c(-1,1)))) 
+100*round(1-c(0.7965441, 0.7630414, 0.8315179), digits=3)
+
+```
+
+# Model: Drivers killed by law change, and month and petrol price
+
+```{r}
+seatbelts.by.law.covars <- glm(DriversKilled~law+month+PetrolPrice, data=seatbelts, family=poisson)
+anova(seatbelts.by.law.covars, test="Chisq")
+summary(  seatbelts.by.law.covars.emm <- emmeans(seatbelts.by.law.covars, ~law, type="response")  )
+
+# Before and after contrast
+confint(contrast(seatbelts.by.law.covars.emm, list(law.change=c(-1,1))))
+100*round(1-c(0.8560592, 0.8172318, 0.8967314), digits=3)
+(123.5065 - 105.7289) / 123.5065 # Just checking!
+```
+
+
+
+
+
