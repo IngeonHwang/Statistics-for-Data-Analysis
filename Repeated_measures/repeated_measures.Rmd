@@ -1,0 +1,211 @@
+---
+title: 'Repeated Measures'
+author: Neil Stewart
+#date: '`r format(Sys.time(), "%d %B %Y")`'
+bibliography: module_refs.bib
+csl: https://www.zotero.org/styles/harvard-cite-them-right
+output: 
+   html_document:
+    toc: true
+    toc_depth: 3 
+---
+---
+
+```{r setup}
+library(tidyverse)
+library(gridExtra)
+library(emmeans) # for emmeans() and contrast()
+options(width=100)
+```
+
+---
+
+# Objectives
+
+* Understand the analysis of repeated measures data
+* Understand the difference between _null hypothesis significance testing_ (NHST) and _estimation_
+* Be able to run repeated measures analysis in R:
+	* Using `aov` and `summary`, for the NHST approach
+	* Using `emmeans`, for the estimation approach
+* Be able to report results in plain English using a NHST or estimation approach
+* Be able to produce excellent plots with `ggplot`
+
+---
+
+# Reading
+
+@Howell17 Chapters 13 and 18 are an excellent introduction to repeated measures
+
+---
+
+# A workplace well-being intervention
+
+We measured workers' well-being every week for five weeks. Between weeks 2 and 3, we make a workplace intervention intended to increase well-being
+
+```{r load data}
+intervention <- read_csv("well-being.csv")
+intervention <- intervention %>% mutate(time=as.factor(time))
+intervention <- arrange(intervention, sub, time)
+intervention
+```
+
+---
+
+# The incorrect ANOVA
+
+```{r plot data wrongly}
+ggplot(intervention, aes(x=time, y=well.being)) + geom_jitter(height=0.05, width=0.1) + scale_y_continuous(breaks=1:10) + labs(x="Time / Weeks", y="Well-Being", subtitle="The dotted line marks the intervention") + geom_vline(xintercept=2.5, lty=3)
+```
+
+```{r incorrect model}
+m.incorrect <- lm(well.being~time, data=intervention)
+summary(m.incorrect)
+anova(m.incorrect)
+```
+
+According to this _incorrect_ ANOVA, there is no significant effect of time, $F(4,35)=2.1$, $p=.11$. 
+
+---
+
+## Contrasts (on the incorrect model)
+
+We can hand-build some custom contrasts
+
+`after.minus.before` compares the average of times 1 and 2 with the average of times 3, 4, and 5
+
+`t3.minus.t2` compares times 2 and 3
+
+```{r incorrect contrasts}
+(  m.incorrect.emm <- emmeans(m.incorrect, ~time)  )
+(  contrasts <- data.frame(after.minus.before=c(-1/2, -1/2, 1/3, 1/3, 1/3), t3.minus.t2=c(0, -1, 1, 0, 0))  )
+confint(contrast(m.incorrect.emm, contrasts))
+```
+
+According to this _incorrect_ ANOVA, the contrast for before and after the treatment shows that well-being increases by 1.67 points 95% CI[0.43--2.90]
+
+---
+
+# The correct repeated-measures ANOVA
+
+In repeated measures data, observations are not considered independent draws from the population. We are taking repeated observations from the same unit of analysis (e.g., the same person, the same company)
+
+_Always_ plot repeated measures data _for each participant_
+
+```{r good plotting}
+ggplot(intervention, aes(x=time, y=well.being, group=sub, col=sub)) + geom_line(alpha=0.5) + scale_y_continuous(breaks=1:10) + labs(x="Time / Weeks", y="Well-Being", col="Subject") + geom_vline(xintercept=2.5, lty=3)
+```
+
+The `aov()` function is used for repeated measures data. Note the extra `Error(sub/time)` term, which means that time is varying within each subject---that each subject is measured at each time
+
+The code `contrasts(intervention$time) <- contr.sum` does something technical. Because there is no natural time point to call out reference level, we are using _effects coding_ (also called _sum to zero contrasts_). This makes sense whenever there is no natural reference level 
+
+```{r repeated measures ANOVA}
+#contrasts(intervention$time) <- contr.treatment # The default contrast, where each level is contrasted with the first
+contrasts(intervention$time) <- contr.sum # Each level is contrasted with the grand mean
+m.well.being.by.time <- aov(well.being~time + Error(sub/time), data=intervention)
+summary(m.well.being.by.time)
+```
+
+We write: "The effect of time is significant, $F(4,28)=21.4$, $p<.0001$"
+
+## Contrasts on the correct repeated-measures ANOVA
+
+```{r contrasts on repeated measures ANOVA}
+(  m.well.being.by.time.emm <- emmeans(m.well.being.by.time, ~time)  )
+
+(  contrasts <- data.frame(after.minus.before=c(-1/2, -1/2, 1/3, 1/3, 1/3), t3.minus.t2=c(0, -1, 1, 0, 0))  )
+confint(contrast(m.well.being.by.time.emm, contrasts))
+```
+
+"Well-being is 1.7 points higher 95% CI[1.3--2.1]  after the intervention"
+
+---
+
+## Adjusted well-being
+
+Averaging over weeks, some employees just have higher well-being than others. These individual differences are hiding the effect of our intervention
+
+```{r well-being with average}
+(  mean.well.being <- intervention %>% group_by(sub) %>% summarise(mean.well.being=mean(well.being))  )
+
+ggplot(intervention, aes(x=time, y=well.being, group=sub, col=sub)) + geom_line() + facet_grid(.~sub) + geom_hline(data=mean.well.being, aes(yintercept=mean.well.being, col=sub), lty=2) + geom_vline(xintercept=2.5, lty=3) + labs(x="Time / Weeks", y="Well-Being", col=NULL) + scale_y_continuous(breaks=1:10)
+```
+
+Let's adjust each person's well-being score by subtracting their own personal mean
+
+```{r adjusted well-being}
+
+intervention <- merge(intervention, mean.well.being)
+intervention <- intervention %>% mutate(adjusted.well.being=well.being-mean.well.being)
+
+ggplot(intervention, aes(x=time, y=adjusted.well.being, group=sub, col=sub)) + geom_line(alpha=0.7) + labs(x="Time / Weeks", y="Deviation from Average Well-Being", col="Subject") + geom_vline(xintercept=2.5, lty=3) + ylim(-5,5)
+```
+
+---
+
+## Sources of variability
+
+In the repeated-measures ANOVA all the variability due to subject differences is removed when thinking about the effect of time.
+
+```{r sources of variability, echo=FALSE}
+grid.arrange(
+	ggplot(intervention, aes(x=time, y=well.being, group=sub)) + geom_point(alpha=0.5) + labs(x="Time / Weeks", y="Average Well-Being", title="With Between-Subject Variability") + geom_vline(xintercept=2.5, lty=3) + ylim(0,10),
+	ggplot(intervention, aes(x=time, y=adjusted.well.being, group=sub)) + geom_point(alpha=0.5) + labs(x="Time / Weeks", y="Deviation from Average Well-Being", title="Without Between-Subject Variability") + geom_vline(xintercept=2.5, lty=3) + ylim(-5,5),
+	ncol=2
+)
+```
+
+```{r sum of squares, echo=FALSE}
+# I do not expect you to ever run this code, so I've hidden it
+incorrect.anova.SS <- c(0, anova(m.incorrect)$"Sum Sq")
+names(incorrect.anova.SS) <- c("Subjects", "Time", "Residuals")
+correct.repeated.measures.anova.SS <- c((summary(m.well.being.by.time)$"Error: sub")[[1]]$"Sum Sq", (summary(m.well.being.by.time)$"Error: sub:time")[[1]]$"Sum Sq")
+names(correct.repeated.measures.anova.SS) <- c("Subjects", "Time", "Residuals")
+SS <- data.frame(model=rep(c("Incorrect ANOVA", "Repeated Measures ANOVA"), each=3), SS=c(incorrect.anova.SS, correct.repeated.measures.anova.SS), source=c(names(incorrect.anova.SS), names(correct.repeated.measures.anova.SS)))
+ggplot(SS, aes(x=source, y=SS)) + geom_col() + facet_grid(.~model) + labs(x="Source", y="Variability")
+```
+
+---
+
+## Paired-samples $t$-test
+
+Let's compare before vs after with a paired samples $t$-test. This is nearly the same as the before--after contrast
+
+```{r before after t-test}
+intervention <- intervention %>% mutate(timing=ifelse(time %in% 1:2, "Before", "After"))
+(  intervention.timing <- intervention %>% group_by(sub, timing) %>% summarise(well.being=mean(well.being))  )
+(  intervention.timing.wide <- intervention.timing %>% spread(timing, well.being)  )
+t.test(intervention.timing.wide$Before, intervention.timing.wide$After, paired=TRUE)
+```
+
+---
+
+# Mixed ANOVA
+
+
+_Always_ plot repeated measures data _for each participant_
+
+```{r mixed ANOVA plotting}
+ggplot(intervention, aes(x=time, y=well.being, group=sub, col=sex)) + geom_line(alpha=0.5) + scale_y_continuous(breaks=1:10) + labs(x="Time / Weeks", y="Well-Being", col="Sex", subtitle="Each line is one person") + geom_vline(xintercept=2.5, lty=3)
+```
+
+```{r mixed ANOVA}
+m.well.being.by.time.sex <- aov(well.being~time*sex + Error(sub/time), data=intervention)
+summary(m.well.being.by.time.sex)
+```
+
+We write: "The effect of time is significant, $F(4,24)=19.7$, $p<.0001$. The effect of time does not interact with sex, $F(4,23)=0.7$, $p=.8$"
+
+## Contrasts on the correct repeated-measures ANOVA
+
+```{r contrasts on mixed ANOVA}
+(  m.well.being.by.time.sex.emm <- emmeans(m.well.being.by.time.sex, ~time + sex)  )
+
+(  interaction.contrast <- data.frame(timing.by.sex.interaction=c(-1/2, -1/2, 1/3, 1/3, 1/3, 1/2, 1/2, -1/3, -1/3, -1/3))  )
+confint(contrast(m.well.being.by.time.sex.emm, interaction.contrast))
+```
+
+"The improvement in well-being for men is 0.17 95% CI[-0.64--0.98] smaller than the improvement for women"
+
+# References
+
