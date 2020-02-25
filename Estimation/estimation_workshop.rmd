@@ -1,0 +1,184 @@
+---
+title: 'Estimation workshop'
+author: Neil Stewart
+#date: '`r format(Sys.time(), "%d %B %Y")`'
+bibliography: module_refs.bib
+csl: https://www.zotero.org/styles/harvard-cite-them-right
+output: 
+   html_document:
+    toc: true
+    toc_depth: 3 
+---
+---
+
+```{r setup}
+library(tidyverse)
+library(nycflights13)
+library(emmeans) # for emmeans() and pairs()
+library(gridExtra) # for grid.arrange()
+#library(knitr) # for kable()
+#library(kableExtra) # for cell_spec()
+#library(Rmisc) # for CI()
+options(width=100)
+```
+
+---
+
+# Week 5 workshop
+
+In this workshop we will contrast NHST and estimation approaches to comparing two groups
+
+We will use three samples I have taken from the flights data. For each sample:
+
+* Run a $t$-test to compare the mean in-air gain for flights from JFK and LGA
+	* Write a few plain English sentences explaining what the $t$-test means
+* Construct confidence intervals for the mean in-air gain from each airport and the difference in mean in-air gain
+	* Write a few plain English sentences explaining what the confidence intervals means
+
+Now compare what you can learn from the $t$-test with what you can learn from the confidence intervals for each sample. 
+
+* Compare Samples 1 and 2. They are both random samples of 100 flights. When you see a $p$-value of .02, how confident are you that the difference is real?
+* Compare Samples 2 and 3. In both cases there is no significant difference between delays from JFK vs LGA. But how does the estimation approach change what you can conclude between Samples 2 and 3? Why is there a difference in conclusions between Samples 2 and 3?
+
+# Learning objectives for today
+
+* Understand the difference between _null hypothesis significance testing_ (NHST) and _estimation_
+* Understand what the _standard error of the mean_ is
+* Understand what a _confidence interval_ is
+* Be able to calculate confidence intervals in R for the difference between two groups
+* Be able to write about confidence intervals in R
+* Be able to plot confidence intervals in R
+
+---
+
+# Secret code for making samples
+
+This is the code I used to take thousands of samples of 100, and then to select the sample I want to give a particular $p$-value. You don't need to understand this code. If you are running this code in real life, you are either teaching business statistics... or cheating!
+
+```{r}
+flights <- mutate(flights, gain=dep_delay-arr_delay) %>% filter (!is.na(gain) & origin %in% c("JFK", "LGA"))
+
+sample.with.seed <- function(seed, size) {
+	set.seed(seed)
+	s <- flights %>% sample_n(size)
+	result <- t.test(gain~origin, data=s)
+	tibble(seed=seed, size=size, t=result$statistic, p=result$p.value, lwr=result$conf.int[1], upr=result$conf.int[2])
+}
+
+samples.100 <- bind_rows(lapply(1:1000, sample.with.seed, size=100))
+samples.2000 <- bind_rows(lapply(1:1000, sample.with.seed, size=2000))
+
+# Sample 1
+samples.100 %>% filter(p<.05)
+set.seed(118)
+sample.1 <- flights %>% sample_n(100)
+ggplot(sample.1, aes(x=gain, fill=origin)) + geom_histogram(binwidth=5, position="identity", alpha=0.5)
+t.test(gain~origin, data=sample.1)
+sample.1 <- sample.1 %>% mutate(gain=ifelse(gain < -50, -666, gain))
+ggplot(sample.1, aes(x=gain, fill=origin)) + geom_histogram(binwidth=5, position="identity", alpha=0.5)
+t.test(gain~origin, data=sample.1)
+write_csv(sample.1, "sample_1.csv")
+
+
+# Sample 2
+samples.100 %>% filter(p>.60 & p <.65)
+set.seed(25)
+sample.2 <- flights %>% sample_n(100)
+ggplot(sample.2, aes(x=gain, fill=origin)) + geom_histogram(binwidth=5, position="identity", alpha=0.5)
+t.test(gain~origin, data=sample.2)
+write_csv(sample.2, "sample_2.csv")
+
+
+# Sample 3
+samples.2000 %>% filter(p>.60 & p <.65)
+set.seed(533)
+sample.3 <- flights %>% sample_n(2000)
+ggplot(sample.3, aes(x=gain, fill=origin)) + geom_histogram(binwidth=5, position="identity", alpha=0.5)
+t.test(gain~origin, data=sample.3)
+write_csv(sample.3, "sample_3.csv")
+```
+
+# Sample 1
+
+Always plot your data. _Always._ I can see straight away something bad has happened
+
+```{r}
+sample.1 <- read_csv("sample_1.csv")
+ggplot(sample.1, aes(x=gain, fill=origin)) + geom_histogram(binwidth=5, position="identity", alpha=0.5)
+sample.1 %>% filter(gain < -200)
+```
+
+Oh! There are two flights for which the in-air gain is -666. Disturbing. By checking the `dep_delay` and `arr_delay`
+
+```{r}
+sample.1 <- sample.1 %>% mutate(new.gain=dep_delay-arr_delay)
+ggplot(sample.1, aes(x=gain, y=new.gain)) + geom_point()
+```
+
+Something ghoulish went wrong with with those two flights---they are the only flights where the in-air gain is wrong. Let's correct the mistake and continue...
+
+```{r}
+ggplot(sample.1, aes(x=new.gain, fill=origin)) + geom_histogram(binwidth=5, position="identity", alpha=0.5)
+t.test(new.gain~origin, data=sample.1)
+```
+
+NHST approach: The mean in-air gain for flights from JFK is 9.7 minutes. The main in-air gain for flights from LGA is 0.6 minutes. Flights from JFK gain a significant 9.1 minutes more than flights from LGA, $t(81.7)=2.33$, $p=.022$.
+
+```{r}
+m1 <- lm(new.gain~origin, data=sample.1)
+(  m1.emm <- emmeans(m1, ~origin)  )
+(  m1.contrast <- confint(pairs(m1.emm))  )
+```
+
+Estimation approach: The mean in-air gain for JFK is 9.7 minutes, 95% CI[4.6--14.8] minutes. The mean in-air gain for LGA is 0.6 minutes, 95% CI[-4.9--6.2] minutes. The mean gain for JFK is faster than LGA by 9.1 minutes, 95% CI[1.5--16.6] minutes
+
+
+# Sample 2
+
+
+```{r}
+sample.2 <- read_csv("sample_2.csv")
+ggplot(sample.2, aes(x=gain, fill=origin)) + geom_histogram(binwidth=5, position="identity", alpha=0.5)
+t.test(gain~origin, data=sample.2)
+```
+
+NHST approach: The mean in-air gain for flights from JFK is 5.4 minutes. The main in-air gain for flights from LGA is 3.6 minutes. The 1.9 minute difference is not significantly different from zero, $t(83.8)=0.52$, $p=.60$.
+
+```{r}
+m2 <- lm(gain~origin, data=sample.2)
+(  m2.emm <- emmeans(m2, ~origin)  )
+(  m2.contrast <- confint(pairs(m2.emm))  )
+```
+
+Estimation approach: The mean in-air gain for JFK is 5.4 minutes, 95% CI[1.0--9.9] minutes. The mean in-air gain for LGA is 3.6 minutes, 95% CI[-2--9.2] minutes. The mean gain for JFK is faster than LGA by 1.9 minutes, but the 95% CI of [-5.3--9.1] minutes shows that we have not been able to estimate the difference with much accuracy
+
+
+# Sample 3
+
+
+```{r}
+sample.3 <- read_csv("sample_3.csv")
+ggplot(sample.3, aes(x=gain, fill=origin)) + geom_histogram(binwidth=5, position="identity", alpha=0.5)
+t.test(gain~origin, data=sample.3)
+```
+
+NHST approach: The mean in-air gain for flights from JFK is 5.9 minutes. The main in-air gain for flights from LGA is 5.5 minutes. The 0.4 minute difference is not significantly different from zero, $t(1984)=0.52$, $p=.60$.
+
+```{r}
+m3 <- lm(gain~origin, data=sample.3)
+(  m3.emm <- emmeans(m3, ~origin)  )
+(  m3.contrast <- confint(pairs(m3.emm))  )
+```
+
+Estimation approach: The mean in-air gain for JFK is 5.9 minutes, 95% CI[4.8--7.0] minutes. The mean in-air gain for LGA is 5.5 minutes, 95% CI[4.3-6.6] minutes. The mean gain for JFK is faster than LGA by only 0.4 minutes. The 95% CI of [-1.2--2.0] minutes shows that we can be sure that if there is a difference in the in-air gain between JFK and LGA, it is not very large at all---no more than a couple of minutes either way
+
+# Contrasting Samples 1 and 2
+
+The difference here is what we were illustrating in the dance of the confidence intervals. Always remember that the CI you get is one from many possible samples, and that, when the sample size is small, they can vary considerably. The smallness of the $p$-value is not a good indicator of what might happen if you ran the study again
+
+# Contrasting Samples 2 and 3
+
+I cheated, and chose these samples very carefully so that $t$ and $p$ are about the same. The CI for Sample 2 is wide---we have not learned much about the difference from a sample of 100 flights. Just that the difference in delay is (95%) likely to be between 5 minutes in favour of LGA through to 9 minutes in favour of JFK. The CI for Sample 3 is narrow---we have learned quite a lot. The difference is not significant, but we have learned more than that. We have learned that the difference is no more extreme than a couple of minutes either way. That is, the difference is a much more precise zero!
+
+
+

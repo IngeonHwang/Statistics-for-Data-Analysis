@@ -1,0 +1,142 @@
+---
+title: 'Logistic regression workshop'
+author: Neil Stewart
+#date: '`r format(Sys.time(), "%d %B %Y")`'
+bibliography: module_refs.bib
+csl: https://www.zotero.org/styles/harvard-cite-them-right
+output: 
+   html_document:
+    toc: true
+    toc_depth: 3 
+---
+---
+
+```{r setup}
+library(tidyverse)
+library(emmeans) # for emmeans() and pairs()
+options(width=100)
+```
+
+---
+
+# Logistic regression workshop
+
+In this workshop we will run a logistic regression to predict the subscriptions during a marketing campaign
+
+## Tasks for today
+
+1. Get the [Bank Marketing Data Set](https://archive.ics.uci.edu/ml/datasets/Bank+Marketing) from the UCI Machine Learning Repository. We are only going to focus on subscriptions `y` and `month` in the campaign
+2. Make a tibble from the "bank-additional-full.csv" (Hint: Use `read_delim()` with the `delim=";"` and `guess_max=10000` options. Why?)
+3. Explore how the proportion of people subscribing to a term deposit (`y`) varies by calendar month (`month`) during the marketing campaign using a logistic regression
+4. Use the logistic regression model to make predictions for probability of a subscription in each month
+5. What is the odds of a subscription in September?
+6. You should have run a logistic regression in Question 3. Use the coefficients from a `summary()` of the regression to calculate, by hand, the predictions of the model for September
+7. Why does subscription vary over months? (Hint: Check the number of people contacted in each month) Draw a beautiful plot to make your conclusion irresistible
+
+Check:
+
+* Did you make a data dictionary?
+* Are your plots beautiful, and clearly labelled?
+* Have you written plain-English sentences that describe the pattern of the results, and supplemented them with statistics as necessary?
+
+---
+
+## Learning objectives for today
+
+1. Understand the generalised linear model for logistic regression
+2. Learn how to run logistic regression models in R
+3. Learn how to draw wonderful plots of logistic regression data
+4. Learn how to report results from a logistic regression
+
+---
+
+# Questions 1 and 2
+
+```{r}
+marketing <- read_delim("bank-additional-full.csv", delim=";", guess_max=1e4)
+marketing <- marketing %>% mutate(subscribed=ifelse(y=="yes",1,0))
+
+marketing <- marketing %>% mutate(month=factor(month, levels=c("mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), labels=c("March", "April", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec"))) 
+```
+
+Variable | Description
+-------- | ----------------------------------------------
+month    | Month of contact
+y        | Term deposit subscription? (y/n) 
+
+---
+
+# Question 3
+
+The proportion of people subscribing each month varies from about 10% to about 50%. I have also calculated the total number of subscriptions and the total number of contacts made to achieve those subscriptions
+
+```{r}
+(  marketing.by.month <- marketing %>% 
+	group_by(month) %>% 
+	summarise(prop.subscribed=mean(subscribed), total.subscribed=sum(subscribed), total.contacts=n())
+)
+```
+
+---
+
+# Question 4
+
+```{r}
+m.subscribed.by.month <- glm(subscribed~month, family=binomial, data=marketing)
+summary(m.subscribed.by.month)
+anova(m.subscribed.by.month, test="Chisq")
+```
+
+Calendar month has a significant effect on the proportion of people subscribing, $\chi^2(9, 41178)=2175.3$, $p < .0001$
+
+```{r}
+summary(  m.subscribed.by.month.emm <- emmeans(m.subscribed.by.month, ~month, type="response")  )
+ggplot(summary(m.subscribed.by.month.emm), aes(x=month, y=prob, ymin=asymp.LCL, ymax=asymp.UCL)) + geom_point() + geom_linerange() + labs(x="Month", y="Proportion Subscribing")
+```
+
+About 50% of people subscribe in March, September, October and December. About 10% of people subscribe in May, June, July, August, and November. About 20% of people subscribe in April
+
+---
+
+# Question 5
+
+I use `emmeans()` to get predictions on the log odds scale
+
+```{r}
+emmeans(m.subscribed.by.month, ~month)
+exp(-0.20421554) # Bad! Copied and pasted output. Lazy!
+```
+
+The odds are the exponential of the log odds. So the odds are 1:0.82 time more likely than not to subscribe in September---that is $1/0.82=1.23$ times less likely than not to subscribe in September
+
+---
+
+# Question 6
+
+```{r}
+summary(m.subscribed.by.month)
+(  Sept.log.odds <- unname(coef(m.subscribed.by.month)["(Intercept)"] + coef(m.subscribed.by.month)["monthSept"])  )
+(  Sept.odds <- exp(Sept.log.odds)  )
+p.from.odds <- function(odds) {odds/(1+odds)}
+(  Sept.prob <- p.from.odds(Sept.odds)  )
+```
+
+When the dummy $September=1$, to indicate it is September, all the other month dummies are $0$. This means the log odds of subscribing in September are 
+
+$\log(\frac{p}{1-p})= \beta_0 + \beta_{September} \times 1$
+
+and then we rearrange this to get the expression for the probability instead of the log odds
+
+---
+
+# Question 7
+
+When I calculated the proportion in each month for Question 3, I also calculated the total number of subscriptions and the total number of people contacted in the campaign
+
+```{r}
+ggplot(marketing.by.month, aes(x=total.contacts, y=prop.subscribed)) + geom_point() + labs(x="Number of People Contacted", y="Proportion Subscribing")
+```
+
+The variation between months is largely due to the number of people contacted. The success rate is much lower in months when many people are contacted. It seems that the extra people contacted are not likely to subscribe
+
+
