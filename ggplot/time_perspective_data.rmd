@@ -1,0 +1,74 @@
+---
+title: 'Time Perspective of Nations: `ggplot` workshop'
+author: Neil Stewart
+#date: '`r format(Sys.time(), "%d %B %Y")`'
+bibliography: module_refs.bib
+csl: https://www.zotero.org/styles/harvard-cite-them-right
+output: 
+   html_document:
+    toc: true
+    toc_depth: 3 
+---
+---
+
+```{r setup}
+library(tidyverse)
+options(width=100)
+```
+
+---
+
+# Week 3 Workshop: Part 2
+
+In Part 2 of this workshop we will draw `ggplot()`s plots of data about the relationship between the way a country searches Google for time information and their GDP
+
+See @NoguchiStewartOlivolaMoatPreis14 for details. The timing of searches for previous and future years are characterised by focus and horizon. Focus quantifies how many searches there are for, for example, a future year compared to searches for the current year. Horizon characterises how quickly searches drop off as they are further from the current year. @NoguchiStewartOlivolaMoatPreis14 find that countries with higher GDP search more for the future and search less for the past, and think further into the future and the past when they do this
+
+
+Be sure to produce _production ready_ plots, complete with _figure captions_ 
+
+## Tasks for today
+
+4. Reproduce Figure 3 from @NoguchiStewartOlivolaMoatPreis14. 
+
+This is a very tough demand! Perhaps try just to produce the top left panel first. Maybe draw each panel separately and use `grid.arrange` to combine them
+
+If you are feeling ambitious, try reshaping the data and doing the plot in one go. The data arrive in a wide format. But plotting works better in a long format. Use `gather()` and `separate()` to reshape the data
+
+Finally, check you can knit your Rmarkdown document to produce an HTML file documenting everything you have done
+
+---
+
+
+```{r}
+(  TP <- read_csv("time_perspective_data.csv")  )
+```
+
+# Reshape the data into long format
+
+Marvel at the power of `gather()` and `separate()`
+
+```{r}
+TP.long <- TP %>% gather(time.attitude, time.score, c(future_focus, future_horizon, past_focus, past_horizon)) %>% separate(time.attitude, into=c("time.direction", "time.type"), sep="_")
+TP.long
+```
+
+# Create factors for pretty labels on plots
+
+```{r}
+TP.long <- TP.long %>% mutate(time.direction=factor(time.direction, levels=c("future", "past"), labels=c("Future", "Past")))
+TP.long <- TP.long %>% mutate(time.type=factor(time.type, levels=c("focus", "horizon"), labels=c("Focus", "Horizon")))
+TP.long <- TP.long %>% mutate(year=as.factor(year))
+```
+
+# Recreating Figure 3
+
+```{r}
+ggplot(TP.long, aes(x=time.score, y=gdp)) + geom_point(aes(col=year)) + facet_grid(time.type~time.direction) + scale_y_log10(breaks=c(1000,2000,5000,10000,20000,50000)) + labs(x="Time Score", y="Per-Capita GDP (USD)", col="Year") + geom_smooth(method="lm", col="black")
+```
+
+Figure X. Per-capita GDP as a function of future and past focuses and future and past time-horizons. Solid lines are fits of a linear model, with 95% confidence intervals given by the shaded area
+
+
+# References
+
