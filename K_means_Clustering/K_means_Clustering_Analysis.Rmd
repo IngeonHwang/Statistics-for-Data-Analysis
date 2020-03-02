@@ -1,0 +1,149 @@
+---
+title: "K-means_Cluster_Analysis"
+author: "Ingeon Hwang"
+date: "02/03/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## K-means Cluster Analysis
+
+Clustering is a broad set of techniques for finding subgroups of observations within a data set. When we cluster observations, we want observations in the same group to be similar and observations in different groups to be dissimilar.
+
+Process 
+1. Replication Requirements: What you’ll need to reproduce the analysis 
+2. Data Preparation: Preparing the data for cluster analysis
+3. Clustering Distance Measures: Understanding how to measure differences in observations
+4. K-Means Clustering: Calculations and methods for creating K subgroups of the data
+5. Determining Optimal Clusters: Identifying the right number of clusters to group the data
+
+```{r}
+library(readxl)
+library(tidyverse)  # data manipulation
+library(cluster)    # clustering algorithms
+library(factoextra) # clustering algorithms & visualization
+```
+
+
+#### Data Preparation
+```{r}
+wage_data <- read_excel("wagessurvey.xlsx")
+wage_df <- as.data.frame(wage_data)
+
+wage_selected<- select(wage_df, Education, Experience, Age, Wage)
+
+wage_selected <- na.omit(wage_selected) # To remove any missing value that might be present in the data
+
+wage_selected <- scale(wage_selected)
+head(wage_selected)
+
+```
+
+```{r}
+distance <- get_dist(wage_selected)
+fviz_dist(distance, gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
+```
+It classifies objects in multiple groups (i.e., clusters), such that objects within the same cluster are as similar as possible (i.e., high intra-class similarity), whereas objects from different clusters are as dissimilar as possible (i.e., low inter-class similarity). In k-means clustering, each cluster is represented by its center (i.e, centroid) which corresponds to the mean of points assigned to the cluster.
+
+```{r}
+wage_kmean <- kmeans(wage_selected, centers = 2, nstart = 25)
+str(wage_kmean)
+wage_kmean
+```
+The first step when using k-means clustering is to indicate the number of clusters (k) that will be generated in the final solution
+
+K-means algorithm can be summarized as follows:
+
+Specify the number of clusters (K) to be created (by the analyst)
+Select randomly k objects from the data set as the initial cluster centers or means
+Assigns each observation to their closest centroid, based on the Euclidean distance between the object and the centroid
+For each of the k clusters update the cluster centroid by calculating the new mean values of all the data points in the cluster. The centroid of a Kth cluster is a vector of length p containing the means of all variables for the observations in the kth cluster; p is the number of variables.
+Iteratively minimize the total within sum of square (Eq. 7). That is, iterate steps 3 and 4 until the cluster assignments stop changing or the maximum number of iterations is reached. By default, the R software uses 10 as the default value for the maximum number of iterations.
+
+```{r}
+fviz_cluster(wage_kmean, data = wage_selected)
+```
+We can also view our results by using fviz_cluster. This provides a nice illustration of the clusters. If there are more than two dimensions (variables) fviz_cluster will perform principal component analysis (PCA) and plot the data points according to the first two principal components that explain the majority of the variance.
+
+```{r}
+k2 <- kmeans(wage_selected, centers = 2, nstart = 25)
+k3 <- kmeans(wage_selected, centers = 3, nstart = 25)
+k4 <- kmeans(wage_selected, centers = 4, nstart = 25)
+k5 <- kmeans(wage_selected, centers = 5, nstart = 25)
+
+# plots to compare
+p1 <- fviz_cluster(k2, geom = "point", data = wage_df) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = wage_df) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = wage_df) + ggtitle("k = 4")
+p4 <- fviz_cluster(k5, geom = "point",  data = wage_df) + ggtitle("k = 5")
+
+library(gridExtra)
+grid.arrange(p1, p2, p3, p4, nrow = 2)
+```
+
+```{r}
+set.seed(123)
+
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(wage_selected, k, nstart = 10 )$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 1:15
+
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
+plot(k.values, wss_values,
+       type="b", pch = 19, frame = FALSE, 
+       xlab="Number of clusters K",
+       ylab="Total within-clusters sum of squares")
+```
+
+```{r}
+set.seed(123)
+
+fviz_nbclust(wage_selected, kmeans, method = "wss")
+```
+
+```{r}
+# function to compute average silhouette for k clusters
+avg_sil <- function(k) {
+  km.res <- kmeans(wage_selected, centers = k, nstart = 25)
+  ss <- silhouette(km.res$cluster, dist(df))
+  mean(ss[, 3])
+}
+```
+
+```{r}
+fviz_nbclust(wage_selected, kmeans, method = "silhouette")
+```
+
+```{r}
+# compute gap statistic
+set.seed(123)
+gap_stat <- clusGap(wage_selected, FUN = kmeans, nstart = 25,
+                    K.max = 10, B = 50)
+# Print the result
+print(gap_stat, method = "firstmax")
+```
+
+```{r}
+fviz_gap_stat(gap_stat)
+```
+
+```{r}
+# Compute k-means clustering with k = 4
+set.seed(123)
+final <- kmeans(wage_selected, 3, nstart = 25)
+print(final)
+```
+
+```{r}
+fviz_cluster(final, data = wage_selected)
+```
+
