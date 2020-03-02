@@ -33,12 +33,6 @@ In this workshop we will run a logistic regression to predict the subscriptions 
 6. You should have run a logistic regression in Question 3. Use the coefficients from a `summary()` of the regression to calculate, by hand, the predictions of the model for September
 7. Why does subscription vary over months? (Hint: Check the number of people contacted in each month) Draw a beautiful plot to make your conclusion irresistible
 
-Check:
-
-* Did you make a data dictionary?
-* Are your plots beautiful, and clearly labelled?
-* Have you written plain-English sentences that describe the pattern of the results, and supplemented them with statistics as necessary?
-
 ---
 
 ## Learning objectives for today
@@ -120,7 +114,6 @@ summary(m.subscribed.by.month)
 p.from.odds <- function(odds) {odds/(1+odds)}
 (  Sept.prob <- p.from.odds(Sept.odds)  )
 ```
-
 When the dummy $September=1$, to indicate it is September, all the other month dummies are $0$. This means the log odds of subscribing in September are 
 
 $\log(\frac{p}{1-p})= \beta_0 + \beta_{September} \times 1$
