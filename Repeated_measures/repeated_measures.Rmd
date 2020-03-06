@@ -1,6 +1,5 @@
 ---
 title: 'Repeated Measures'
-author: Neil Stewart
 #date: '`r format(Sys.time(), "%d %B %Y")`'
 bibliography: module_refs.bib
 csl: https://www.zotero.org/styles/harvard-cite-them-right
